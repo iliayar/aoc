@@ -1,0 +1,5 @@
+(executable
+ (public_name ocaml)
+ (name main)
+ (preprocess (pps ppx_deriving.show))
+ (libraries ocaml batteries sexplib))

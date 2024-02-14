@@ -1,0 +1,5 @@
+# Nix
+.direnv
+
+# ocaml
+_build

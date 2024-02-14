@@ -1,0 +1,145 @@
+open Base
+
+type direction = L | R | T | B [@@deriving ord, sexp]
+
+let opposite = function L -> R | R -> L | T -> B | B -> T
+
+module Cell = struct
+  type t = Pipe of direction * direction | Ground | Start [@@deriving sexp]
+
+  let of_char : char -> t = function
+    | '|' -> Pipe (T, B)
+    | '-' -> Pipe (L, R)
+    | 'L' -> Pipe (T, R)
+    | 'J' -> Pipe (T, L)
+    | '7' -> Pipe (L, B)
+    | 'F' -> Pipe (R, B)
+    | '.' -> Ground
+    | 'S' -> Start
+    | _ -> failwith "unreachable"
+
+  let is_pipe = function Pipe _ -> true | _ -> false
+  let is_start = function Start -> true | _ -> false
+  let is_ground = function Ground -> true | _ -> false
+
+  let has_diretion dir = function
+    | Pipe (f, s) -> compare_direction dir f = 0 || compare_direction dir s = 0
+    | _ -> failwith "invalid argument"
+end
+
+let read_input =
+  let lines = Stdio.In_channel.read_lines "input.txt" in
+  let map =
+    Array.of_list
+    @@ List.map
+         ~f:(fun l -> Array.map ~f:Cell.of_char @@ String.to_array l)
+         lines
+  in
+  map
+
+let check_connected map pos direction =
+  let x, y = pos in
+  let xn, yn =
+    match direction with
+    | L -> (x - 1, y)
+    | R -> (x + 1, y)
+    | T -> (x, y - 1)
+    | B -> (x, y + 1)
+  in
+  let h = Array.length map in
+  let w = Array.length map.(0) in
+  if xn < 0 || xn >= w || yn < 0 || yn >= h then None
+  else
+    let ret b = if b then Some (xn, yn) else None in
+    let c = map.(y).(x) in
+    let cn = map.(yn).(xn) in
+    Cell.(
+      if is_ground c || is_ground cn then None
+      else
+        ret
+          ((is_start c || has_diretion direction c)
+          && (is_start cn || has_diretion (opposite direction) cn)))
+
+let all_directions = [ L; R; T; B ]
+
+let find_start map =
+  let h = Array.length map in
+  let w = Array.length map.(0) in
+  let rec xloop x =
+    let rec yloop y =
+      if y = h then None
+      else if Cell.is_start map.(y).(x) then Some (x, y)
+      else yloop (y + 1)
+    in
+    if x = w then None
+    else match yloop 0 with Some c -> Some c | None -> xloop (x + 1)
+  in
+  xloop 0
+
+let map_array map v =
+  Array.init (Array.length map) ~f:(fun _ ->
+      Array.create ~len:(Array.length map.(0)) v)
+
+let print_map to_string map =
+  let char_map = Array.map ~f:(Array.map ~f:to_string) map in
+  Array.iter
+    ~f:(fun l ->
+      let s = String.concat_array ~sep:" " l in
+      Stdio.print_endline s)
+    char_map
+
+let bfs map s =
+  let dists = map_array map 0 in
+  let was = map_array map false in
+  let impl queue =
+    while not @@ Queue.is_empty queue do
+      let x, y = Queue.dequeue_exn queue in
+      let curd = dists.(y).(x) in
+      (* Stdio.printf !"Visit: %{sexp:int * int}, D: %d\n" (x, y) curd; *)
+      (* print_map Int.to_string dists; *)
+      (* print_map Bool.to_string was; *)
+      let ns =
+        List.filter ~f:(fun (x, y) -> not was.(y).(x))
+        @@ List.filter_map ~f:(check_connected map (x, y)) all_directions
+      in
+      List.iter
+        ~f:(fun (xn, yn) ->
+          dists.(yn).(xn) <- curd + 1;
+          was.(y).(x) <- true;
+          (* Stdio.printf !"Enqueue: %{sexp:int * int}\n" (xn, yn); *)
+          Queue.enqueue queue (xn, yn))
+        ns
+    done
+  in
+  let queue = Queue.singleton s in
+  let x, y = s in
+  was.(y).(x) <- true;
+  impl queue;
+  dists
+
+let dfs map dists s =
+  let was = map_array map false in
+  let rec impl (x, y) =
+    if was.(y).(x) then if Cell.is_start map.(y).(x) then Some 0 else None
+    else (
+      Stdio.printf !"Enter: %{sexp:int*int}\n" (x, y);
+      was.(y).(x) <- true;
+      let ns = List.filter_map ~f:(check_connected map (x, y)) all_directions in
+      let nns = List.filter_map ~f:impl ns in
+      match nns with
+      | [] -> None
+      | ds -> Some (List.fold ~init:dists.(y).(x) ~f:max ds))
+  in
+  impl s
+
+let () =
+  let map = read_input in
+  let start = Option.value_exn @@ find_start map in
+  (* Stdio.printf !"%{sexp:Cell.t}\n" map.(0).(2); *)
+  Stdio.printf !"%{sexp:(int * int) option}\n" @@ check_connected map (1, 2) T;
+  Stdio.printf !"Start: %{sexp:int * int}\n" start;
+  let dists = bfs map start in
+  print_map Int.to_string dists;
+  let res = Option.value_exn @@ dfs map dists start in
+  Stdio.printf !"%d" res;
+  Stdlib.exit 0
